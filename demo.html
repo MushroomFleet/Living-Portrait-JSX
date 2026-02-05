@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Living Portrait — Haunted Gallery</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0a0a;
+    --frame: #2a2218;
+    --gold: #8b7355;
+    --gold-dim: #665544;
+    --text: #c4b5a0;
+    --text-dim: #555;
+    --danger: #cc6644;
+  }
+
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'EB Garamond', 'Palatino Linotype', 'Book Antiqua', serif; }
+  body { display: flex; flex-direction: column; align-items: center; padding: 24px 16px; user-select: none; min-height: 100vh; }
+
+  h1 { font-size: 2.4rem; font-weight: 400; letter-spacing: 0.15em; text-transform: uppercase; color: var(--gold); margin-bottom: 4px; text-shadow: 0 0 30px rgba(139,115,85,0.3); }
+  .subtitle { color: var(--gold-dim); font-size: 0.85rem; letter-spacing: 0.3em; margin-bottom: 24px; text-transform: uppercase; }
+
+  /* Status toast */
+  .status-toast {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    background: rgba(30,20,10,0.95); border: 1px solid var(--gold); color: #d4c5a0;
+    padding: 10px 28px; border-radius: 4px; font-size: 0.9rem; z-index: 100;
+    letter-spacing: 0.1em; box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+    animation: fadeIn 0.2s ease; pointer-events: none;
+  }
+  .status-toast.hidden { display: none; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(-8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+  /* Slot bar */
+  .slot-bar { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; justify-content: center; }
+  .slot-btn {
+    background: rgba(255,255,255,0.04); color: #555; border: 1px solid #333;
+    padding: 6px 16px; border-radius: 3px; cursor: pointer; font-size: 0.8rem;
+    letter-spacing: 0.15em; font-family: inherit; transition: all 0.2s;
+  }
+  .slot-btn:hover { filter: brightness(1.15); }
+  .slot-btn.occupied { background: rgba(139,115,85,0.2); color: var(--text); border-color: var(--gold-dim); }
+  .slot-btn.active { background: var(--gold); color: var(--bg); border-color: var(--gold); }
+
+  /* Controls */
+  .controls { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; justify-content: center; align-items: center; }
+  .btn {
+    background: rgba(139,115,85,0.15); color: var(--text); border: 1px solid var(--gold-dim);
+    padding: 8px 20px; border-radius: 3px; cursor: pointer; font-size: 0.8rem;
+    letter-spacing: 0.12em; font-family: inherit; transition: all 0.2s;
+  }
+  .btn:hover { filter: brightness(1.15); }
+  .btn:active { filter: brightness(0.9); }
+  .btn.locked { background: rgba(180,40,40,0.2); color: var(--danger); border-color: #884433; }
+  .btn-sm { background: rgba(139,115,85,0.1); color: #887766; border: 1px solid #444; padding: 8px 14px; font-size: 0.75rem; letter-spacing: 0.1em; }
+  .eye-count { color: var(--text-dim); font-size: 0.75rem; }
+
+  /* Portrait frame */
+  .portrait-frame {
+    position: relative; max-width: 700px; width: 100%; background: #111; border-radius: 4px;
+    overflow: hidden; border: 3px solid var(--frame); transition: box-shadow 0.15s ease;
+    box-shadow: 0 0 60px rgba(0,0,0,0.8), inset 0 0 80px rgba(0,0,0,0.5);
+  }
+  .portrait-frame.glowing { box-shadow: 0 0 60px rgba(0,0,0,0.8), inset 0 0 80px rgba(0,0,0,0.5), 0 0 50px rgba(200,40,0,0.18); }
+  .frame-border {
+    position: absolute; inset: 0; border: 8px solid transparent;
+    border-image: linear-gradient(135deg, #3d3020, #1a1510, #3d3020, #1a1510) 1;
+    z-index: 5; pointer-events: none;
+  }
+
+  /* Empty state */
+  .empty-state {
+    height: 450px; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; cursor: pointer; color: var(--text-dim); gap: 12px;
+  }
+  .empty-state span:first-of-type { font-size: 0.9rem; letter-spacing: 0.15em; }
+  .empty-state span:last-of-type { font-size: 0.7rem; color: #444; }
+
+  /* Image container */
+  .img-container { position: relative; line-height: 0; }
+  .img-container.edit-mode { cursor: crosshair; }
+  .img-container img { width: 100%; display: block; filter: brightness(0.85); transition: filter 0.15s; }
+  .img-container.glowing img { filter: brightness(0.88); }
+
+  /* Darkness vignette */
+  .vignette {
+    position: absolute; inset: 0; pointer-events: none; z-index: 2;
+    background: radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.5) 100%);
+    transition: background 0.15s;
+  }
+  .vignette.glowing { background: radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.35) 100%); }
+
+  /* Glow canvas */
+  .glow-canvas {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; mix-blend-mode: screen; z-index: 3;
+  }
+
+  /* Eye socket markers */
+  .eye-marker {
+    position: absolute; width: 22px; height: 22px; margin-left: -11px; margin-top: -11px;
+    border-radius: 50%; border: 2px solid #cc8855; background: rgba(200,60,20,0.2);
+    cursor: grab; z-index: 10; transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  }
+  .eye-marker:hover { border-color: #ff6644; background: rgba(200,60,20,0.4); box-shadow: 0 0 12px rgba(200,60,20,0.5); }
+
+  /* Help */
+  .help { margin-top: 20px; text-align: center; max-width: 600px; line-height: 1.8; }
+  .help p:first-child { color: var(--text-dim); font-size: 0.75rem; letter-spacing: 0.08em; }
+  .help p:last-child { color: #444; font-size: 0.65rem; margin-top: 4px; letter-spacing: 0.06em; }
+</style>
+</head>
+<body>
+
+<h1>Living Portrait</h1>
+<p class="subtitle">Haunted Gallery System</p>
+
+<div id="statusToast" class="status-toast hidden"></div>
+
+<!-- Slot bar -->
+<div class="slot-bar" id="slotBar"></div>
+
+<!-- Controls -->
+<div class="controls" id="controls">
+  <button class="btn" id="uploadBtn">Upload Portrait</button>
+  <input type="file" id="fileInput" accept="image/*" style="display:none" />
+</div>
+
+<!-- Portrait frame -->
+<div class="portrait-frame" id="portraitFrame">
+  <div class="frame-border"></div>
+  <div class="empty-state" id="emptyState">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="1.2">
+      <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>
+    </svg>
+    <span>Click to upload a portrait</span>
+    <span>Front-facing works best</span>
+  </div>
+  <div class="img-container" id="imgContainer" style="display:none">
+    <img id="portraitImg" draggable="false" alt="Portrait" />
+    <div class="vignette" id="vignette"></div>
+    <canvas class="glow-canvas" id="glowCanvas"></canvas>
+  </div>
+</div>
+
+<!-- Help -->
+<div class="help">
+  <p id="helpText">Upload a portrait image to begin</p>
+  <p>Slots 1–6 save full scenes (image + eye positions) · Export/Import for backup</p>
+</div>
+
+<script>
+// ──────────────────── IndexedDB helpers ────────────────────
+const DB_NAME = "LivingPortraitDB", DB_VER = 2, IMG_STORE = "images", PROF_STORE = "profiles";
+
+function openDB() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(DB_NAME, DB_VER);
+    r.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(IMG_STORE)) db.createObjectStore(IMG_STORE);
+      if (!db.objectStoreNames.contains(PROF_STORE)) db.createObjectStore(PROF_STORE);
+    };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function dbPut(store, key, val) {
+  const db = await openDB();
+  return new Promise((res, rej) => { const tx = db.transaction(store,"readwrite"); tx.objectStore(store).put(val,key); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); });
+}
+async function dbGet(store, key) {
+  const db = await openDB();
+  return new Promise((res, rej) => { const tx = db.transaction(store,"readonly"); const r = tx.objectStore(store).get(key); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); });
+}
+
+// ──────────────────── State ────────────────────
+let imageData = null;
+let eyeSockets = [];     // [{x, y}, ...] normalised 0-1
+let locked = false;
+let glowIntensity = 0;
+let profiles = {};
+let activeSlot = null;
+let draggingIdx = null;
+let hoverIdx = null;
+let animFrame = null;
+
+// ──────────────────── DOM refs ────────────────────
+const $ = id => document.getElementById(id);
+const portraitFrame = $("portraitFrame"), emptyState = $("emptyState"), imgContainer = $("imgContainer");
+const portraitImg = $("portraitImg"), vignette = $("vignette"), glowCanvas = $("glowCanvas");
+const fileInput = $("fileInput"), uploadBtn = $("uploadBtn"), slotBar = $("slotBar");
+const controlsDiv = $("controls"), statusToast = $("statusToast"), helpText = $("helpText");
+
+// ──────────────────── Toast ────────────────────
+let toastTimer;
+function flash(msg) {
+  statusToast.textContent = msg;
+  statusToast.classList.remove("hidden");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => statusToast.classList.add("hidden"), 2200);
+}
+
+// ──────────────────── Slots UI ────────────────────
+function renderSlots() {
+  slotBar.innerHTML = "";
+  for (let s = 1; s <= 6; s++) {
+    const btn = document.createElement("button");
+    btn.className = "slot-btn" + (profiles[s] ? " occupied" : "") + (activeSlot === s ? " active" : "");
+    btn.textContent = `${s} ${profiles[s] ? "●" : "○"}`;
+    btn.title = profiles[s] ? `Load slot ${s} (key: ${s}) | Shift+${s} to save` : `Empty slot (Shift+${s} to save)`;
+    btn.onclick = () => loadSlot(s);
+    slotBar.appendChild(btn);
+  }
+}
+
+// ──────────────────── Controls UI ────────────────────
+function renderControls() {
+  // Clear everything after upload btn
+  while (controlsDiv.children.length > 2) controlsDiv.removeChild(controlsDiv.lastChild);
+  if (imageData) {
+    const lockBtn = document.createElement("button");
+    lockBtn.className = "btn" + (locked ? " locked" : "");
+    lockBtn.textContent = locked ? "🔒 Locked" : "🔓 Unlocked";
+    lockBtn.onclick = () => { locked = !locked; renderControls(); updateHelp(); renderMarkers(); };
+    controlsDiv.appendChild(lockBtn);
+
+    const count = document.createElement("span");
+    count.className = "eye-count";
+    count.textContent = `${eyeSockets.length} eye${eyeSockets.length !== 1 ? "s" : ""} placed`;
+    controlsDiv.appendChild(count);
+  }
+
+  // Export / Import (always visible)
+  if (!controlsDiv.querySelector(".export-btn")) {
+    const expBtn = document.createElement("button");
+    expBtn.className = "btn btn-sm export-btn";
+    expBtn.textContent = "Export JSON";
+    expBtn.onclick = exportProfiles;
+    controlsDiv.appendChild(expBtn);
+
+    const impLabel = document.createElement("label");
+    impLabel.className = "btn btn-sm";
+    impLabel.textContent = "Import JSON";
+    impLabel.style.cursor = "pointer";
+    const impInput = document.createElement("input");
+    impInput.type = "file"; impInput.accept = ".json"; impInput.style.display = "none";
+    impInput.onchange = importProfiles;
+    impLabel.appendChild(impInput);
+    controlsDiv.appendChild(impLabel);
+  }
+}
+
+function updateHelp() {
+  if (!imageData) helpText.textContent = "Upload a portrait image to begin";
+  else if (locked) helpText.textContent = "Scene locked · Hold SPACE to illuminate · Shift+[1-6] to save · [1-6] to load";
+  else helpText.textContent = "Click to place eye sockets · Drag to reposition · Delete to remove · Lock when ready";
+}
+
+// ──────────────────── Image handling ────────────────────
+uploadBtn.onclick = () => fileInput.click();
+emptyState.onclick = () => fileInput.click();
+
+fileInput.onchange = e => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    imageData = ev.target.result;
+    eyeSockets = [];
+    locked = false;
+    activeSlot = null;
+    showImage();
+    renderControls();
+    renderSlots();
+    updateHelp();
+  };
+  reader.readAsDataURL(file);
+};
+
+function showImage() {
+  if (!imageData) { emptyState.style.display = "flex"; imgContainer.style.display = "none"; return; }
+  emptyState.style.display = "none";
+  imgContainer.style.display = "block";
+  imgContainer.classList.toggle("edit-mode", !locked);
+  portraitImg.src = imageData;
+  portraitImg.onload = () => { resizeCanvas(); renderMarkers(); drawGlow(); };
+}
+
+// ──────────────────── Canvas sizing ────────────────────
+function resizeCanvas() {
+  glowCanvas.width = portraitImg.clientWidth;
+  glowCanvas.height = portraitImg.clientHeight;
+}
+window.addEventListener("resize", () => { if (imageData) { resizeCanvas(); drawGlow(); renderMarkers(); } });
+
+// ──────────────────── Glow rendering ────────────────────
+function drawGlow() {
+  const w = glowCanvas.width, h = glowCanvas.height;
+  const ctx = glowCanvas.getContext("2d");
+  ctx.clearRect(0, 0, w, h);
+  if (glowIntensity <= 0 || eyeSockets.length === 0) return;
+
+  const intensity = glowIntensity;
+  eyeSockets.forEach(({ x, y }) => {
+    const px = x * w, py = y * h;
+    const radius = Math.max(20, w * 0.045);
+
+    // Outer halo
+    const og = ctx.createRadialGradient(px, py, 0, px, py, radius * 3.5);
+    og.addColorStop(0, `rgba(255,20,0,${0.25*intensity})`);
+    og.addColorStop(0.3, `rgba(200,0,0,${0.12*intensity})`);
+    og.addColorStop(1, `rgba(100,0,0,0)`);
+    ctx.fillStyle = og;
+    ctx.fillRect(px - radius*4, py - radius*4, radius*8, radius*8);
+
+    // Inner
+    const ig = ctx.createRadialGradient(px, py, 0, px, py, radius * 1.5);
+    ig.addColorStop(0, `rgba(255,80,30,${0.9*intensity})`);
+    ig.addColorStop(0.4, `rgba(255,20,0,${0.5*intensity})`);
+    ig.addColorStop(1, `rgba(180,0,0,0)`);
+    ctx.fillStyle = ig;
+    ctx.beginPath(); ctx.arc(px, py, radius*1.5, 0, Math.PI*2); ctx.fill();
+
+    // Core
+    const cg = ctx.createRadialGradient(px, py, 0, px, py, radius * 0.5);
+    cg.addColorStop(0, `rgba(255,220,180,${0.95*intensity})`);
+    cg.addColorStop(0.5, `rgba(255,120,40,${0.6*intensity})`);
+    cg.addColorStop(1, `rgba(255,40,0,0)`);
+    ctx.fillStyle = cg;
+    ctx.beginPath(); ctx.arc(px, py, radius*0.5, 0, Math.PI*2); ctx.fill();
+  });
+
+  // Frame glow effect
+  portraitFrame.classList.toggle("glowing", glowIntensity > 0);
+  imgContainer.classList.toggle("glowing", glowIntensity > 0);
+  vignette.classList.toggle("glowing", glowIntensity > 0);
+}
+
+// ──────────────────── Eye socket markers ────────────────────
+function renderMarkers() {
+  // Remove existing markers
+  imgContainer.querySelectorAll(".eye-marker").forEach(m => m.remove());
+  if (locked) return;
+
+  eyeSockets.forEach((socket, idx) => {
+    const marker = document.createElement("div");
+    marker.className = "eye-marker";
+    marker.style.left = `${socket.x * 100}%`;
+    marker.style.top = `${socket.y * 100}%`;
+    marker.title = "Drag to move · Delete/Backspace to remove";
+    marker.onmouseenter = () => { hoverIdx = idx; };
+    marker.onmouseleave = () => { hoverIdx = null; };
+    marker.onmousedown = e => startDrag(e, idx);
+    imgContainer.appendChild(marker);
+  });
+}
+
+// ──────────────────── Drag ────────────────────
+function startDrag(e, idx) {
+  if (locked) return;
+  e.stopPropagation();
+  e.preventDefault();
+  draggingIdx = idx;
+  const onMove = me => {
+    const rect = imgContainer.getBoundingClientRect();
+    eyeSockets[idx].x = Math.max(0, Math.min(1, (me.clientX - rect.left) / rect.width));
+    eyeSockets[idx].y = Math.max(0, Math.min(1, (me.clientY - rect.top) / rect.height));
+    renderMarkers();
+    if (glowIntensity > 0) drawGlow();
+  };
+  const onUp = () => {
+    draggingIdx = null;
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+  };
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+}
+
+// Click to place eye
+imgContainer.onclick = e => {
+  if (locked || !imageData || draggingIdx !== null) return;
+  if (e.target.classList.contains("eye-marker")) return;
+  const rect = imgContainer.getBoundingClientRect();
+  const x = (e.clientX - rect.left) / rect.width;
+  const y = (e.clientY - rect.top) / rect.height;
+  eyeSockets.push({ x, y });
+  renderMarkers();
+  renderControls();
+};
+
+// ──────────────────── Keyboard ────────────────────
+let spaceHeld = false;
+
+window.addEventListener("keydown", e => {
+  if (e.code === "Space" && !e.repeat) {
+    e.preventDefault();
+    spaceHeld = true;
+    glowIntensity = 1;
+    drawGlow();
+  }
+  if (e.key >= "1" && e.key <= "6" && !e.repeat) {
+    if (e.shiftKey) saveSlot(parseInt(e.key));
+    else loadSlot(parseInt(e.key));
+  }
+  if ((e.code === "Backspace" || e.code === "Delete") && hoverIdx !== null && !locked) {
+    eyeSockets.splice(hoverIdx, 1);
+    hoverIdx = null;
+    renderMarkers();
+    renderControls();
+  }
+});
+
+window.addEventListener("keyup", e => {
+  if (e.code === "Space") {
+    spaceHeld = false;
+    glowIntensity = 0;
+    drawGlow();
+  }
+});
+
+// ──────────────────── Save / Load slots ────────────────────
+async function saveSlot(slot) {
+  if (!imageData) { flash("No image loaded"); return; }
+  const profile = { slot, imageKey: `img_slot_${slot}`, eyeSockets: eyeSockets.map(s => ({...s})), locked, savedAt: new Date().toISOString() };
+  try {
+    await dbPut(IMG_STORE, `img_slot_${slot}`, imageData);
+    profiles[slot] = profile;
+    await dbPut(PROF_STORE, "allProfiles", { ...profiles });
+    activeSlot = slot;
+    renderSlots();
+    flash(`Scene saved to slot ${slot}`);
+  } catch (err) { flash("Save failed"); console.error(err); }
+}
+
+async function loadSlot(slot) {
+  const p = profiles[slot];
+  if (!p) { flash(`Slot ${slot} is empty`); return; }
+  try {
+    const img = await dbGet(IMG_STORE, p.imageKey);
+    if (!img) { flash(`Image missing for slot ${slot}`); return; }
+    imageData = img;
+    eyeSockets = (p.eyeSockets || []).map(s => ({...s}));
+    locked = p.locked || false;
+    activeSlot = slot;
+    showImage();
+    renderControls();
+    renderSlots();
+    updateHelp();
+    flash(`Loaded slot ${slot}`);
+  } catch (err) { flash("Load failed"); console.error(err); }
+}
+
+// ──────────────────── Export / Import ────────────────────
+function exportProfiles() {
+  const data = JSON.stringify(profiles, null, 2);
+  const blob = new Blob([data], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = "living-portrait-profiles.json"; a.click();
+  URL.revokeObjectURL(url);
+  flash("Profiles exported");
+}
+
+function importProfiles(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      await dbPut(PROF_STORE, "allProfiles", data);
+      profiles = data;
+      renderSlots();
+      flash("Profiles imported");
+    } catch (err) { flash("Invalid profile file"); }
+  };
+  reader.readAsText(file);
+}
+
+// ──────────────────── Init ────────────────────
+(async () => {
+  try {
+    const saved = await dbGet(PROF_STORE, "allProfiles");
+    if (saved) profiles = saved;
+  } catch (e) { console.warn("Could not load profiles", e); }
+  renderSlots();
+  renderControls();
+  updateHelp();
+})();
+</script>
+</body>
+</html>
